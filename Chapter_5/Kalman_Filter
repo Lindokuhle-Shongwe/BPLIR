@@ -1,0 +1,221 @@
+%Author: Lindokuhle Shongwe
+%Date:   02/02/2019
+% University of Cape Town
+%--------------------Description-------------------------------------------
+%This script runs the Kalman filter presented in teh dissertation in
+%Chapter 5. The script is configured to reproduce the results presented in
+%section 5.5 using teh data labelled "IMU_Data12"
+%--------------------------------------------------------------------------
+
+% Load logged Data
+load IMU_Data12
+
+% Determine absolute link 2 angle by addig Encorder 1 and 2 reading
+ENC2=ENC2+ENC1;
+
+% determine size of data and set up sample time
+[num_samples ,num_axes]=size(gyro_2);
+Ts=0.01;
+
+% convert gyro signals to angular velocity (rad/s)
+gyro_1r=gyro_1*(pi/180);%*(1/2000);   
+gyro_2r=gyro_2*(pi/180);%*(1/2000);
+
+%Initialise PLIR geometric variables including empty matrices for estimated
+%state
+r1=0.5; r2=0.5; l1=0.8; l2=1; g=9.8; acc_1g=acc_1*g; acc_2g=acc_2*g;
+th1=[]; th2=[];
+
+%--Initialise posterior state of PLIR, assume vertically down and at rest--
+t1=0; t2=0; t1_d=0;t2_d=0;
+%---------------------initialise a prior state of PLIR---------------------
+t1_=0; t2_=0; t1_d_=0; t2_d_=0; t1_dd_=0; t2_dd_=0; 
+
+th2_d=[]; 
+th1_d=[];
+side=[];
+error=[];
+% %----------------------Initialise A,P,W,V,R,Q matrices-------------------
+P_=[0 0 0 0;0 0 0 0;0 0 1.44 1.44;0 0 1.44 4.5762]*2;
+
+o1=(l1/r1)*sin(t2-t1)*(r1*t1_d^2 + g*cos(t1))-(l1/r1)*cos(t2-t1)*g*sin(t1);
+o2=-(l1/r1)*sin(t2-t1)*(r1*t1_d^2 + g*cos(t1)) + (l1/r1)*g*sin(t2)-g*sin(t2);
+o3=2*(l1/r1)*cos(t2-t1)*t1_d*r1;
+o4=2*(l1/r1)*t2_d*r2;
+
+%find initial conditions for teh model
+u1x=acc_1g(1,1)*(9.8/10.15);
+h1_0=t1_d;
+h2_0=t2_d;
+h3_0=r1*(t1_d)^2 +g*cos(t1);
+h4_0=(l1/r1)*cos(t2-t1)*h3_0 + (l1/r1)*r2*(t2_d)^2 - (l1/r1)*g*cos(t2) +g*cos(t2)-(l1/r1)*sin(t2-t1)*u1x;
+
+R=[(0.0166)^2 0 0 0;0 (0.0166)^2 0 0;0 0 (0.427)^2 0 ;0 0 0 0.427^2];
+
+y=[];
+sum=0;
+sum1=0;
+k=[];
+compare=[];
+compare1=[];
+compare2=[];
+compare3=[];
+x=[0;0;0;0];
+
+bq=1;
+for i=bq:num_samples
+   
+   %------------------retrieve current system measurements--------------------
+    %acc_1g=acc_1g*(9.8/10.15);
+    %acc_2g=acc_2g*(9.8/10.15);
+    u1x=acc_1g(i,1)*(9.8/10.15);
+    u1y=acc_1g(i,2)*(9.8/10.15);
+    u1z=acc_1g(i,3)*(9.8/10.15);
+    
+    u2x=acc_2g(i,1)*(9.8/10.15);
+    u2y=acc_2g(i,2)*(9.8/10.15);
+    u2z=acc_2g(i,3)*(9.8/10.15);
+
+    
+    y1=(gyro_1r(i,3)-.026); 
+    y2=(gyro_2r(i,3)+0.009);
+    
+%---------------------calculate A, W, and Q--------------------------------
+%A=dF(x,u)/dx;
+a=(g*cos(t1))/(r1);
+b=(1/r2)*(-g*cos(t2) + (l1/r1)*g*sin(t2));
+q=(l1/(r1*r2))*cos(t2-t1);
+t= (l1/(r1*r2))*sin(t2-t1);
+%Q=(0.173^2)*[0.01 0 0 0;0 0.001 0 0; 0 0 1/(r1^2) q/r1;0 0 q/r1 ((q^2)+(1/(r2^2))+t^2)];
+%Q=(0.00173^2)*[0 0 0 0;0 0 0 0;0 0 1 0;0 0 0 1]
+n3=1/r1;
+n4=((-l1/(r1*r2))*cos(t2-t1)) +(1/r2)^2 +((l1/(r1*r2))*sin(t2-t1));
+Q=Ts*(0.476^2)*[0 0 0 0;0 0 0 0;0 0 n3^2 n3^2;0 0 n3^2 n4^2];
+A=[0 0 1 0;0 0 0 1;a 0 0 0;0 b 0 0]*Ts +diag([1 1 1 1]); 
+P_=A*P_*transpose(A) + Q;
+
+ %----------------------predict next state (x_)-----------------------------
+ %t2_dd_=(1/(r2))*(u2x-g*sin(t1) - (l1/r1)*(cos(t2-t1)*u1x +sin(t2-t1)*u1y-g*sin(t2)));
+ %t2_dd_ =((-l1)/(r1*r2))*g*sin(t2-t1)  + (u2x/r2) -((l1)/(r1*r2))*cos(t2-t1)*u1x + ((l1)/(r1*r2))*sin(t2-t1)*u1y;
+ t2_dd_ = -(l1/(r1*r2))*cos(t2-t1) *(u1x-g*sin(t1)) + (1/r2)*(u2x - g*sin(t2) -l1*(t1_d^2)*sin(t2-t1));
+ t2_d_= Ts*t2_dd_+ t2_d;
+ t2_=t2+t2_d_*Ts;
+ 
+ t1_dd_= (1/r1)*((u1x)-g*sin(t1));
+ t1_d_=Ts*t1_dd_ + t1_d;
+ t1_=t1_d_*Ts+t1;
+ 
+ x_=[t1_; t2_; t1_d_; t2_d_];
+
+
+%--------------------Update stage--------------------------
+
+o1=(l1/r1)*sin(t2-t1)*(r1*t1_d^2 + g*cos(t1))-(l1/r1)*cos(t2-t1)*g*sin(t1);
+o2=-(l1/r1)*sin(t2-t1)*(r1*t1_d^2 + g*cos(t1)) + (l1/r1)*g*sin(t2)-g*sin(t2);
+o3=(l1/r1)*cos(t2-t1)*t1_d*r1;
+o4=(l1/r1)*t2_d*r2;
+
+H=[0 0 1 0;0 0 0 1;-g*sin(t1) 0 2*t1_d*r1 0;o1 o2 o3 o4];
+K=P_*transpose(H)*pinv(H*P_*transpose(H)+R);
+
+
+dy=[(-y1);(-y2);-u1y;-u2y]-([ t1_d_ ; t2_d_ ; r1*(t1_d_^2) + g*cos(t1_) ; (l1/r1)*cos(t2_-t1_)*(r1*t1_d_^2 +g*cos(t1_))+(l1/r1)*r2*t1_d_^2-(l1/r1)*g*cos(t2_)+g*cos(t2_)-(l1/r1)*sin(t2_-t1_)*u1x]);
+correction=K*dy;
+x = x_ +  correction;
+
+P_=(diag(ones(1,4))-K*H)*P_;
+
+%----------------model comparison signals-----------------------------------------
+ sum=sum+y1*Ts;
+ sum1=sum1+y2*Ts;
+ y=[y;sum sum1];
+ 
+ compare2=[compare2; -u1y r1*(t1_d^2) + g*cos(t1)];
+ compare3=[compare3; -u2y (l1/r1)*cos(t2-t1)*(r1*t1_d^2 +g*cos(t1))+(l1/r1)*r2*t1_d^2-(l1/r1)*g*cos(t2)+g*cos(t2)-(l1/r1)*sin(t2-t1)*u1x];
+ 
+
+%-------------------------Variable Updates---------------------------------
+     t1=x(1);
+    t2=x(2);  
+    t1_d=x(3);
+    t2_d=x(4);
+ 
+    
+    th1=[th1;t1];
+    th2=[th2;t2];
+    th1_d=[th1_d;t1_d];
+    th2_d=[th2_d;t2_d];
+    
+    
+
+end
+    
+x1=size(th1);
+x1=linspace(1,x1(1),x1(1));
+x2=size(th2);
+x2= linspace(1,x2(1),x2(1));
+x3=size(th1_d);
+x3=linspace(1,x3(1),x3(1));
+x4=size(th2_d);
+x4=linspace(1,x4(1),x4(1));
+
+
+t1=real(th1);
+t2=real(th2);
+a=size(gyro_1r);
+dt1=gyro_1r(1:a(1),3); 
+dt2=gyro_2r(1:a(1),3);
+
+figure(1)
+subplot(2,1,1)
+plot(transpose(x1(:,1:end))*Ts,[-ENC1(bq:end)-th1(1:end,:) -ENC1(bq:end)+y(:,1)]);
+title("Error in $\theta_1$ estimate",'Interpreter','latex')
+xlabel("Time (s)")
+ylabel(" $\theta_1$ (rad)",'Interpreter','latex')
+legend('Kalman filter error','Gyroscope integral error')
+
+subplot(2,1,2)
+plot(transpose(x2(:,1:end))*Ts,[-ENC2(bq:end)-th2(1:end,:) -ENC2(bq:end)+y(:,2)]);
+title("Error in $\theta_2$ estimate",'Interpreter','latex')
+xlabel("Time (s)")
+ylabel(" $\theta_2$ (rad)",'Interpreter','latex')
+legend('Kalman filter error','Gyroscope integral error')
+% figure(1)
+% subplot(2,1,1)
+% plot(transpose(x1(:,1:end))*Ts,[th1_d(1:end,:) -gyro_1r(:,3)]);
+% title("$\omega_1$ estimate",'Interpreter','latex')
+% xlabel("Time (s)")
+% ylabel(" $\omega_1$ (rad/s)",'Interpreter','latex')
+% legend('Kalman filter Estimate','Gyroscope reading')
+% 
+% subplot(2,1,2)
+% plot(transpose(x2(:,1:end))*Ts,[th2_d(1:end,:) -gyro_2r(:,3)]);
+% title("\$\omega_2$ estimate",'Interpreter','latex')
+% xlabel("Time (s)")
+% ylabel(" $\omega_2$ (rad/s)",'Interpreter','latex')
+% legend('Kalman filter estimate','Gyroscope reading')
+
+
+figure(2)
+subplot(2,1,1)
+plot(transpose(x1(:,1:end))*Ts,[th1(1:end,:) -ENC1(bq:end)]);
+title("$\theta_1$ estimate",'Interpreter','latex')
+xlabel("Time (s)")
+ylabel(" $\theta_1$ (rad)",'Interpreter','latex')
+legend('Kalman estimate','Encoder')
+
+subplot(2,1,2)
+plot(transpose(x2(:,1:end))*Ts,[th2(1:end,:) -ENC2(bq:end)]);
+title("Error in $\theta_2$ estimate",'Interpreter','latex')
+xlabel("Time (s)")
+ylabel(" $\theta_2$ (rad)",'Interpreter','latex')
+legend('Kalman estimate','Encoder')
+
+
+figure(3)
+plot(compare2)
+legend('measured u1y','Model')
+
+figure(4)
+plot(compare3)
+legend('u2y','lin model','non-lin Model')
