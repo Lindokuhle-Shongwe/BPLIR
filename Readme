@@ -2,7 +2,7 @@ Hi there,
 
 Thank you for taking an interest in the MSc project. This is to give you a general feel of what to expect in the folder.
 
-1. The "Kalman.rar" has teh STM32F4 code implementation for the project readily setup to interface with hardware description in Appendix A (Circuit Diagram)
+1. The "Kalman.rar" has the STM32F4 code implementation for the project readily setup to interface with hardware description in Appendix A (Circuit Diagram)
 2. The loose files are MATLAB Scripts which I believe you will find useful for navigating the project. These are namely the simuling model "Acrobot.slx", teh driver for the simuling project "postroc" and the 
 "Kalman_Filter.m"
 
